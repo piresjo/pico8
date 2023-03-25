@@ -1,9 +1,6 @@
 pico-8 cartridge // http://www.pico-8.com
 version 41
 __lua__
--- sorting algorithms visualizer
--- insert line here
-
 -- status
 -- mostly done
 -- -----------
@@ -11,11 +8,18 @@ __lua__
 -- insertion -> works as expected, needs extensive testing
 -- selection -> works as expected, needs extensive testing
 -- odd-even -> works as expected, needs extensive testing
+-- randomization can go step by step -> works as expected, needs extensive testing
+-- different degrees of randomization -> works as expected, needs extensive testing
 
 -- to fix
 -- -------
 -- cocktail -> needs work
 -- bogo -> needs work
+
+-- wip
+-- ---
+
+-- clean up code -> todo
 
 -- to do
 -- -----
@@ -23,12 +27,21 @@ __lua__
 -- quick -> todo
 -- heap -> todo
 -- radix -> todo
+-- backgrounds -> todo
+
+
 
 function _init()
 	program_state = generate_program_state()
 	sound = true
 	colors = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
-	
+	randomize_levels = {
+																					sorted = 0,
+																					mostly = 8,
+																					half = 32,
+																					some = 64,
+																					unsorted = 128,
+																				}
 end
 
 
@@ -70,13 +83,56 @@ function _update60()
 				program_state.count_selector += 1
 			end
 		elseif (btnp(❎)) then
-			program_state.mode = "algorithm"
-			program_state.algorithm_state = generate_algorithm_state(program_state.algorithms_to_choose[program_state.algorithm_selector], program_state.item_count_to_choose[program_state.count_selector])
-			program_state.bars = generate_bars(program_state.item_count_to_choose[program_state.count_selector])
-			program_state.bars = randomize_bars(program_state) 
+			program_state.mode = "randomize_select"
 		elseif (btnp(🅾️)) then
 			program_state.mode = "select"
 			program_state.count_selector = 1
+		end
+	elseif program_state.mode == "randomize_select" then
+		if (btnp(⬅️)) then
+			if (program_state.show_randomize_selector == 1) then
+				program_state.show_randomize_selector = 2
+			else
+				program_state.show_randomize_selector -= 1
+			end
+		elseif (btnp(➡️)) then
+			if (program_state.show_randomize_selector == 2) then
+				program_state.show_randomize_selector = 1
+			else
+				program_state.show_randomize_selector += 1
+			end
+		elseif (btnp(❎)) then
+			program_state.mode = "level_select"
+		elseif (btnp(🅾️)) then
+			program_state.mode = "count_select"
+			program_state.show_randomize_selector = 1
+		end
+	elseif program_state.mode == "level_select" then
+		if (btnp(⬅️)) then
+			if (program_state.randomize_level_selector == 1) then
+				program_state.randomize_level_selector = #program_state.randomize_level_to_choose
+			else
+				program_state.randomize_level_selector -= 1
+			end
+		elseif (btnp(➡️)) then
+			if (program_state.randomize_level_selector == #program_state.randomize_level_to_choose) then
+				program_state.randomize_level_selector = 1
+			else
+				program_state.randomize_level_selector += 1
+			end
+		elseif (btnp(❎)) then
+			program_state.mode = "algorithm"
+			program_state.algorithm_state = generate_algorithm_state(program_state.algorithms_to_choose[program_state.algorithm_selector], program_state.item_count_to_choose[program_state.count_selector], program_state.show_randomize_to_choose[program_state.show_randomize_selector], randomize_levels[program_state.randomize_level_to_choose[program_state.randomize_level_selector]], program_state.randomize_level_to_choose[program_state.randomize_level_selector])
+			program_state.bars = generate_bars(program_state.item_count_to_choose[program_state.count_selector])
+			if (not program_state.algorithm_state.show_randomize) then
+				randomize_bars(program_state)
+				program_state.algorithm_state.randomize_done=true
+			else
+				if (program_state.algorithm_state.randomize_level != "sorted") program_state.algorithm_state.starting_position=128
+			end
+		elseif (btnp(🅾️)) then
+			program_state.mode = "randomize_select"
+			program_state.randomize_level_selector = 1
 		end
 	else
 		if(btnp(❎)) then
@@ -87,19 +143,32 @@ function _update60()
 			program_state.third_sfx_to_play=0
 			program_state.algorithm_selector=1
 			program_state.count_selector = 1
+			program_state.show_randomize_selector = 1
+			program_state.randomize_level_selector = 1
 			program_state.mode = "select"						
 			return
 		end
 	
 		if(btnp(🅾️))  sound = not sound
 	
+		if (program_state.algorithm_state.show_randomize and not program_state.algorithm_state.randomize_done) then
+			printh("pop", "log.txt")
+			randomize_bars_step(program_state)
+		else
+			printh("pap", "log.txt")
+			program_state.algorithm_state.has_ended = program_state.algorithm_state.sort_done and program_state.algorithm_state.starting_position == program_state.algorithm_state.item_count
+			update_bars(program_state)
+		end
+
 		
-		program_state.algorithm_state.has_ended = program_state.algorithm_state.sort_done and program_state.algorithm_state.starting_position == program_state.algorithm_state.item_count
-		update_bars(program_state)
 		local sfx = get_sfx(program_state)
 		program_state.primary_sfx_to_play = sfx[1]
 		program_state.secondary_sfx_to_play = sfx[2]
 		program_state.third_sfx_to_play = sfx[3]
+
+		if (sound and not program_state.algorithm_state.has_ended) then
+			play_sfx(program_state)
+		end
 	end
 end
 
@@ -121,23 +190,49 @@ function _draw()
  	print(program_state.item_count_to_choose[program_state.count_selector], 30, 63, 137)
  	print("change options with d-pad", 30, 71, 137)
  	print("select with 🅾️ or ❎", 30, 79, 137)
+ elseif program_state.mode == "randomize_select" then
+ 	spr(1, 22, 63)
+ 	spr(1, 60, 63, 1, 1, true)
+ 	print(program_state.show_randomize_to_choose[program_state.show_randomize_selector], 30, 63, 137)
+ 	print("change options with d-pad", 30, 71, 137)
+ 	print("select with 🅾️ or ❎", 30, 79, 137)
+ elseif program_state.mode == "level_select" then
+
+ 	spr(1, 22, 63)
+ 	spr(1, 60, 63, 1, 1, true)
+ 	print(program_state.randomize_level_to_choose[program_state.randomize_level_selector], 30, 63, 137)
+ 	print("change options with d-pad", 30, 71, 137)
+ 	print("select with 🅾️ or ❎", 30, 79, 137)
  else
  	draw_bars(program_state)
  	print(program_state.frame, 137)
  	print(program_state.primary_sfx_to_play, 137)
  	print(program_state.secondary_sfx_to_play, 137)
  	print(program_state.third_sfx_to_play, 137)
+ 	print(program_state.randomize_level_to_choose[program_state.randomize_level_selector], 137)
+ 	print(program_state.algorithm_state.randomize_level, 137)
 -- 	print(verify_bars(program_state.bars), 137)
 -- 	print(program_state.algorithm_state.starting_position, 137)
- 	print(program_state.algorithm_state.starting_position, 137)
- 	print(program_state.algorithm_state.compare_position, 137)
- 	print(program_state.algorithm_state.odd_even_sorted, 137)
+-- 	print(program_state.algorithm_state.starting_position, 137)
+-- 	print(program_state.algorithm_state.compare_position, 137)
+-- 	print(program_state.algorithm_state.odd_even_sorted, 137)
 	print("press ❎ to go back", 20, 0, 137)
 	print("press 🅾️ to toggle sound", 20, 8, 137)
 		
 	
  end
  
+end
+
+function draw_bars_randomize(program_state)
+	local scale = program_state.algorithm_state.scale
+	for i=0, program_state.algorithm_state.item_count - 1, 1 do
+		if ((i+1) == program_state.algorithm_state.starting_position or (i+1) == program_state.algorithm_state.randomize_secondary_position) then
+			rectfill((i * scale), 127, (i * scale) + (scale - 1), (127 - (program_state.bars[i+1]-1)*scale), 8)
+		else 
+			rectfill((i * scale), 127, (i * scale) + (scale - 1), (127 - (program_state.bars[i+1]-1)*scale), 7)
+		end
+	end
 end
 
 function draw_bars_done(program_state)
@@ -206,14 +301,19 @@ function draw_bars_odd_even(program_state)
 end	
 
 function draw_bars(program_state)
-	if (program_state.algorithm_state.sort_done) then
-		draw_bars_done(program_state)
-	else	
-		if (program_state.algorithm_state.algorithm=="bubble") draw_bars_bubble(program_state)
-		if (program_state.algorithm_state.algorithm=="selection") draw_bars_selection(program_state)
-		if (program_state.algorithm_state.algorithm=="insertion") draw_bars_insertion(program_state)
-		if (program_state.algorithm_state.algorithm=="odd-even") draw_bars_odd_even(program_state)	
+	if (program_state.algorithm_state.show_randomize and not program_state.algorithm_state.randomize_done) then
+		draw_bars_randomize(program_state)
+	else
+		if (program_state.algorithm_state.sort_done) then
+			draw_bars_done(program_state)
+		else	
+			if (program_state.algorithm_state.algorithm=="bubble") draw_bars_bubble(program_state)
+			if (program_state.algorithm_state.algorithm=="selection") draw_bars_selection(program_state)
+			if (program_state.algorithm_state.algorithm=="insertion") draw_bars_insertion(program_state)
+			if (program_state.algorithm_state.algorithm=="odd-even") draw_bars_odd_even(program_state)	
+		end
 	end
+	
 end
 
 function update_bars(program_state)
@@ -227,9 +327,7 @@ function update_bars(program_state)
 		if (program_state.algorithm_state.algorithm == "insertion") insertion_sort_step(program_state)
 		if (program_state.algorithm_state.algorithm == "odd-even") odd_even_sort_step(program_state)
 	end
-	if (sound and not program_state.algorithm_state.has_ended) then
-		play_sfx(program_state)
-	end
+	
 end
 
 function generate_program_state()
@@ -244,11 +342,15 @@ function generate_program_state()
 									algorithms_to_choose = {"bubble", "cocktail", "bogo", "selection", "insertion", "odd-even"},
 									item_count_to_choose = {2, 4, 8, 16, 32, 64, 128},
 									count_selector=1,
+									show_randomize_to_choose = {true, false},
+									show_randomize_selector=1,
+									randomize_level_to_choose={"sorted", "mostly", "half", "some", "unsorted"},
+									randomize_level_selector=1,
 									algorithm_state=nil
 								}
 end
 
-function generate_algorithm_state(algorithm, item_count)
+function generate_algorithm_state(algorithm, item_count, randomize, randomize_step_count, randomize_level)
 	return {
 									swaps=0,
 									compares=0,
@@ -261,7 +363,7 @@ function generate_algorithm_state(algorithm, item_count)
 									starting_position=1,
 									has_ended=false,
 									swapped=false,
-									sort_done=false,
+									sort_done=randomize_level == "sorted",
 									forward=true,
 									array_start=0,
 									array_end=item_count - 1,
@@ -279,14 +381,23 @@ function generate_algorithm_state(algorithm, item_count)
 									odd_even_first_pass=true,
 									compare_position_for_sound=1,
 									selection_secondary_position=nil,
-									odd_even_beginning_second_pass=false
+									odd_even_beginning_second_pass=false,
+									randomize_done=not randomize or randomize_level == "sorted",
+									randomize_secondary_position=nil,
+									show_randomize=randomize,
+									randomize_step_count=randomize_step_count / (128/item_count),
+									randomize_level  = randomize_level
 								}
 end
 
 function play_sfx(program_state)
-	if (not program_state.algorithm_state.sort_done) then 
-		if (program_state.algorithm_state.algorithm == "selection") sfx(program_state.third_sfx_to_play, 3)
+	if (program_state.algorithm_state.show_randomize and not program_state.algorithm_state.randomize_done) then
 		sfx(program_state.secondary_sfx_to_play, 2)
+	else
+		if (not program_state.algorithm_state.sort_done) then 
+			if (program_state.algorithm_state.algorithm == "selection") sfx(program_state.third_sfx_to_play, 3)
+			sfx(program_state.secondary_sfx_to_play, 2)
+		end
 	end
 	sfx(program_state.primary_sfx_to_play, 1)
 	
@@ -299,27 +410,36 @@ function get_sfx(program_state)
 	--if (program_state.algorithm_state.algorithm == "selection") then
 	--	return flr(((program_state.bars[program_state.algorithm_state.selection_index] - 1) * scale) / 2)
 	--end
-	if (program_state.algorithm_state.sort_done) then
+	
+	if (program_state.algorithm_state.show_randomize and not program_state.algorithm_state.randomize_done) then
 		return_val[1] =  flr(((program_state.bars[program_state.algorithm_state.starting_position] - 1) * scale) / 2)
-		
+		return_val[2] =  flr(((program_state.bars[program_state.algorithm_state.randomize_secondary_position] - 1) * scale) / 2)
 	else
-		if (program_state.algorithm_state.algorithm == "bubble") then
-			return_val[1] = flr(((program_state.algorithm_state.temp_highest_value - 1) * scale) / 2)
-			return_val[2] = flr(((program_state.bars[program_state.algorithm_state.starting_position] - 1) * scale) / 2)
-		elseif (program_state.algorithm_state.algorithm == "selection") then
-			return_val[1] = flr(((program_state.bars[program_state.algorithm_state.selection_secondary_position] - 1) * scale) / 2)
-			return_val[2] = flr(((program_state.bars[program_state.algorithm_state.starting_position] - 1) * scale) / 2)
-			return_val[3] = flr(((program_state.bars[program_state.algorithm_state.selection_index] - 1) * scale) / 2)
-		elseif (program_state.algorithm_state.algorithm == "insertion") then
-			return_val[1] = flr(((program_state.bars[program_state.algorithm_state.compare_position_for_sound]) * scale) / 2)
-			return_val[2] = flr(((program_state.bars[program_state.algorithm_state.starting_position] - 1) * scale) / 2)
-		elseif (program_state.algorithm_state.algorithm == "odd-even") then
-			return_val[1] = flr(((program_state.bars[program_state.algorithm_state.compare_position]) * scale) / 2)
-			return_val[2] = flr(((program_state.bars[program_state.algorithm_state.starting_position] - 1) * scale) / 2)
+		if (program_state.algorithm_state.sort_done) then
+			return_val[1] =  flr(((program_state.bars[program_state.algorithm_state.starting_position] - 1) * scale) / 2)
+		
 		else
-			return_val[1] = flr(((program_state.bars[program_state.algorithm_state.starting_position] - 1) * scale) / 2)
-		end
-	end	
+			if (program_state.algorithm_state.algorithm == "bubble") then
+				return_val[1] = flr(((program_state.algorithm_state.temp_highest_value - 1) * scale) / 2)
+				return_val[2] = flr(((program_state.bars[program_state.algorithm_state.starting_position] - 1) * scale) / 2)
+			elseif (program_state.algorithm_state.algorithm == "selection") then
+				return_val[1] = flr(((program_state.bars[program_state.algorithm_state.selection_secondary_position] - 1) * scale) / 2)
+				return_val[2] = flr(((program_state.bars[program_state.algorithm_state.starting_position] - 1) * scale) / 2)
+				return_val[3] = flr(((program_state.bars[program_state.algorithm_state.selection_index] - 1) * scale) / 2)
+			elseif (program_state.algorithm_state.algorithm == "insertion") then
+				return_val[1] = flr(((program_state.bars[program_state.algorithm_state.compare_position_for_sound]) * scale) / 2)
+				return_val[2] = flr(((program_state.bars[program_state.algorithm_state.starting_position] - 1) * scale) / 2)
+			elseif (program_state.algorithm_state.algorithm == "odd-even") then
+				return_val[1] = flr(((program_state.bars[program_state.algorithm_state.compare_position]) * scale) / 2)
+				return_val[2] = flr(((program_state.bars[program_state.algorithm_state.starting_position] - 1) * scale) / 2)
+			else
+				return_val[1] = flr(((program_state.bars[program_state.algorithm_state.starting_position] - 1) * scale) / 2)
+			end
+		end	
+	end
+
+
+	
 
 	return return_val
 
@@ -344,11 +464,42 @@ end
 
 function randomize_bars(program_state)
 	for i = #program_state.bars, 2, -1 do
-		local j = 1 + flr(rnd(i))
-		program_state.bars[i], program_state.bars[j] = program_state.bars[j], program_state.bars[i]
-		if (program_state.algorithm_state.algorithm == "bogo" and program_state.algorithm_state.has_begun) program_state.algorithm_state.array_accesses += 2 
+		if (program_state.algorithm_state.randomize_step_count > 1) then
+			local j = 1 + flr(rnd(i))
+			program_state.bars[i], program_state.bars[j] = program_state.bars[j], program_state.bars[i]
+			if (program_state.algorithm_state.item_count >= 8) program_state.algorithm_state.randomize_step_count -= 1
+		else
+			break
+		end
 	end
 	return program_state.bars
+end
+
+function randomize_bars_step(program_state)
+	printh(program_state.algorithm_state.randomize_level, "log.txt")
+	if (program_state.algorithm_state.randomize_level != "sorted") then
+		printh(program_state.algorithm_state.starting_position, "log.txt")
+		printh(program_state.algorithm_state.randomize_step_count, "log.txt")
+		if (program_state.algorithm_state.starting_position > 1 and program_state.algorithm_state.randomize_step_count > 1) then
+			printh("bang", "log.txt")
+			program_state.algorithm_state.randomize_secondary_position = 1 + flr(rnd(program_state.algorithm_state.starting_position))
+			program_state.bars[program_state.algorithm_state.starting_position], program_state.bars[program_state.algorithm_state.randomize_secondary_position] = program_state.bars[program_state.algorithm_state.randomize_secondary_position], program_state.bars[program_state.algorithm_state.starting_position]
+			program_state.algorithm_state.starting_position -= 1
+			program_state.algorithm_state.randomize_step_count -= 1
+		else
+			printh("bong", "log.txt")
+			program_state.algorithm_state.starting_position = 1
+			program_state.algorithm_state.randomize_secondary_position = nil
+			program_state.algorithm_state.randomize_done = true
+		end
+	else
+		printh("bing", "log.txt")
+		program_state.algorithm_state.starting_position = 1
+		program_state.algorithm_state.randomize_secondary_position = nil
+		program_state.algorithm_state.randomize_done = true
+		program_state.algorithm_state.sort_done = true
+	end
+	
 end
 
 function is_sorted_step(program_state)
